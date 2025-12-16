@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Markdown Visual Site Builder</title>
+<title>Markdown Site Builder</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -14,29 +14,36 @@ body {
   margin: 0;
   height: 100vh;
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1.3fr 1fr;
   font-family: system-ui, sans-serif;
 }
 
-/* 入力側 */
+/* ===== Editor ===== */
 #editor {
   display: flex;
   flex-direction: column;
 }
 
 textarea {
-  width: 100%;
-  box-sizing: border-box;
   border: none;
   outline: none;
   font-family: monospace;
   padding: 10px;
+  box-sizing: border-box;
 }
 
-#md { height: 70%; }
-#css { height: 30%; border-top: 1px solid #ccc; }
+#md {
+  height: 70%;
+  resize: none;
+}
 
-/* プレビュー側 */
+#css {
+  height: 30%;
+  resize: none;
+  border-top: 1px solid #ccc;
+}
+
+/* ===== Preview ===== */
 #preview-wrap {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -44,11 +51,10 @@ textarea {
 }
 
 #html-preview {
-  padding: 10px;
-  overflow: auto;
   background: #111;
   color: #0f0;
-  font-family: monospace;
+  padding: 10px;
+  overflow: auto;
   font-size: 13px;
 }
 
@@ -58,20 +64,15 @@ textarea {
   height: 100%;
 }
 
-/* UI */
-#css-ui {
+/* ===== UI ===== */
+#top-ui {
   position: fixed;
   top: 10px;
-  right: 10px;
+  left: 10px;
   background: #fff;
   border: 1px solid #ccc;
-  padding: 10px;
+  padding: 6px 10px;
   font-size: 14px;
-}
-
-#css-ui label {
-  display: block;
-  margin-bottom: 6px;
 }
 
 #controls {
@@ -84,36 +85,23 @@ textarea {
 
 <body>
 
-<!-- 入力 -->
+<!-- ===== Editor ===== -->
 <div id="editor">
   <textarea id="md" placeholder="Markdownを書く"></textarea>
-  <textarea id="css" placeholder="CSS（視覚UI＋直編集OK）"></textarea>
+  <textarea id="css" placeholder="style.css（手書き / 自動生成テンプレあり）"></textarea>
 </div>
 
-<!-- プレビュー -->
+<!-- ===== Preview ===== -->
 <div id="preview-wrap">
   <pre id="html-preview"></pre>
   <iframe id="iframe-preview"></iframe>
 </div>
 
-<!-- 視覚CSS -->
-<div id="css-ui">
+<!-- ===== UI ===== -->
+<div id="top-ui">
   <label>
-    display
-    <select id="ui-display">
-      <option>block</option>
-      <option>flex</option>
-      <option>grid</option>
-      <option>none</option>
-    </select>
-  </label>
-  <label>
-    背景色
-    <input type="color" id="ui-bg" value="#ffffff">
-  </label>
-  <label>
-    文字色
-    <input type="color" id="ui-color" value="#000000">
+    <input type="checkbox" id="auto-css" checked>
+    CSS自動生成
   </label>
 </div>
 
@@ -122,36 +110,74 @@ textarea {
 </div>
 
 <script>
+/* ===== marked設定 ===== */
+marked.setOptions({
+  headerIds: false,
+  mangle: false
+});
+
+/* ===== Elements ===== */
 const mdEl = document.getElementById("md");
 const cssEl = document.getElementById("css");
 const htmlPreview = document.getElementById("html-preview");
 const iframe = document.getElementById("iframe-preview");
+const autoCssToggle = document.getElementById("auto-css");
 
-const uiDisplay = document.getElementById("ui-display");
-const uiBg = document.getElementById("ui-bg");
-const uiColor = document.getElementById("ui-color");
+/* ===== タグ検出 ===== */
+function detectTagsFromMarkdown(md) {
+  const html = marked.parse(md);
+  const doc = new DOMParser().parseFromString(html, "text/html");
 
-const images = [];
+  const allowed = [
+    "h1","h2","h3","h4",
+    "p","a",
+    "ul","ol","li",
+    "code","pre",
+    "blockquote"
+  ];
 
-/* UI CSS生成 */
-function buildUICSS() {
-  return `
-body {
-  display: ${uiDisplay.value};
-  background: ${uiBg.value};
-  color: ${uiColor.value};
+  const found = new Set();
+  doc.body.querySelectorAll("*").forEach(el => {
+    const tag = el.tagName.toLowerCase();
+    if (allowed.includes(tag)) found.add(tag);
+  });
+
+  return [...found];
 }
-`.trim();
+
+/* ===== CSS自動生成 ===== */
+function autoGenerateCSS() {
+  if (!autoCssToggle.checked) return;
+
+  const tags = detectTagsFromMarkdown(mdEl.value);
+  let css = cssEl.value;
+
+  tags.forEach(tag => {
+    const exists = new RegExp(`(^|\\n)\\s*${tag}\\s*\\{`, "m").test(css);
+    if (!exists) {
+      css += `
+
+/* ${tag} */
+${tag} {
+
+}`;
+    }
+  });
+
+  cssEl.value = css.trim();
 }
 
-/* HTML生成 */
-function buildHTML() {
+/* ===== HTML生成 ===== */
+function buildHTML(preview = false) {
+  const cssBlock = preview
+    ? `<style>${cssEl.value}</style>`
+    : `<link rel="stylesheet" href="style.css">`;
+
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<link rel="stylesheet" href="style.css">
-<style>${cssEl.value}</style>
+${cssBlock}
 </head>
 <body>
 ${marked.parse(mdEl.value)}
@@ -159,37 +185,33 @@ ${marked.parse(mdEl.value)}
 </html>`;
 }
 
-/* 描画 */
+/* ===== Render ===== */
 function render() {
-  const html = buildHTML();
+  const html = buildHTML(true);
   htmlPreview.textContent = html;
   iframe.srcdoc = html;
 }
 
-/* UI → CSS */
-function syncCSS() {
-  cssEl.value = buildUICSS();
+/* ===== Events ===== */
+mdEl.addEventListener("input", () => {
+  autoGenerateCSS();
   render();
-}
+});
 
-uiDisplay.onchange = syncCSS;
-uiBg.oninput = syncCSS;
-uiColor.oninput = syncCSS;
+cssEl.addEventListener("input", render);
 
-mdEl.oninput = render;
-cssEl.oninput = render;
-
-syncCSS();
-
-/* ZIP */
+/* ===== ZIP出力 ===== */
 document.getElementById("export").onclick = async () => {
   const zip = new JSZip();
-  zip.file("index.html", buildHTML());
+  zip.file("index.html", buildHTML(false));
   zip.file("style.css", cssEl.value);
 
   const blob = await zip.generateAsync({ type: "blob" });
   saveAs(blob, "site.zip");
 };
+
+/* 初期描画 */
+render();
 </script>
 
 </body>
