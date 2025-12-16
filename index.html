@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Markdown Visual CSS Builder</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 100vh;
+}
+
+textarea {
+  width: 100%;
+  height: 50%;
+  padding: 10px;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  font-family: monospace;
+}
+
+#preview {
+  padding: 20px;
+  overflow: auto;
+}
+
+#css-ui {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 10px;
+  font-size: 14px;
+}
+
+#css-ui label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+#controls {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<div>
+  <textarea id="md" placeholder="Markdownを書く"></textarea>
+  <textarea id="css" placeholder="CSS（自動生成されるけど編集OK）"></textarea>
+</div>
+
+<div id="preview"></div>
+
+<!-- 視覚CSS UI -->
+<div id="css-ui">
+  <label>
+    display
+    <select id="ui-display">
+      <option value="block">block</option>
+      <option value="flex">flex</option>
+      <option value="grid">grid</option>
+      <option value="none">none</option>
+    </select>
+  </label>
+
+  <label>
+    背景色
+    <input type="color" id="ui-bg" value="#ffffff">
+  </label>
+
+  <label>
+    文字色
+    <input type="color" id="ui-color" value="#000000">
+  </label>
+</div>
+
+<div id="controls">
+  <button id="export">ZIP出力</button>
+</div>
+
+<script>
+const mdEl = document.getElementById("md");
+const cssEl = document.getElementById("css");
+const preview = document.getElementById("preview");
+
+const uiDisplay = document.getElementById("ui-display");
+const uiBg = document.getElementById("ui-bg");
+const uiColor = document.getElementById("ui-color");
+
+const images = []; // { name, blob }
+
+/* CSS自動生成 */
+function buildUICSS() {
+  return `
+body {
+  display: ${uiDisplay.value};
+  background: ${uiBg.value};
+  color: ${uiColor.value};
+}
+`.trim();
+}
+
+/* プレビュー更新 */
+function render() {
+  preview.innerHTML = `
+    <style>${cssEl.value}</style>
+    ${marked.parse(mdEl.value)}
+  `;
+}
+
+/* UI → CSS同期 */
+function syncCSSFromUI() {
+  cssEl.value = buildUICSS();
+  render();
+}
+
+uiDisplay.onchange = syncCSSFromUI;
+uiBg.oninput = syncCSSFromUI;
+uiColor.oninput = syncCSSFromUI;
+
+mdEl.oninput = render;
+cssEl.oninput = render;
+
+syncCSSFromUI();
+
+/* 画像ドラッグ＆ドロップ */
+preview.addEventListener("dragover", e => e.preventDefault());
+preview.addEventListener("drop", e => {
+  e.preventDefault();
+  [...e.dataTransfer.files].forEach(file => {
+    if (!file.type.startsWith("image/")) return;
+    const ext = file.name.split(".").pop();
+    const name = `image_${images.length + 1}.${ext}`;
+    images.push({ name, blob: file });
+    mdEl.value += `\n![${name}](assets/${name})\n`;
+    render();
+  });
+});
+
+/* ZIP出力 */
+document.getElementById("export").onclick = async () => {
+  const zip = new JSZip();
+
+  const html = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<title>My Site</title>
+</head>
+<body>
+${marked.parse(mdEl.value)}
+</body>
+</html>`;
+
+  zip.file("index.html", html);
+  zip.file("style.css", cssEl.value);
+
+  const assets = zip.folder("assets");
+  images.forEach(img => assets.file(img.name, img.blob));
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  saveAs(blob, "site.zip");
+};
+</script>
+
+</body>
+</html>
