@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Markdown Visual CSS Builder</title>
+<title>Markdown Visual Site Builder</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -12,27 +12,53 @@
 <style>
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
   height: 100vh;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  font-family: system-ui, sans-serif;
+}
+
+/* 入力側 */
+#editor {
+  display: flex;
+  flex-direction: column;
 }
 
 textarea {
   width: 100%;
-  height: 50%;
-  padding: 10px;
   box-sizing: border-box;
   border: none;
   outline: none;
   font-family: monospace;
+  padding: 10px;
 }
 
-#preview {
-  padding: 20px;
+#md { height: 70%; }
+#css { height: 30%; border-top: 1px solid #ccc; }
+
+/* プレビュー側 */
+#preview-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-left: 1px solid #ccc;
+}
+
+#html-preview {
+  padding: 10px;
   overflow: auto;
+  background: #111;
+  color: #0f0;
+  font-family: monospace;
+  font-size: 13px;
 }
 
+#iframe-preview {
+  border: none;
+  width: 100%;
+  height: 100%;
+}
+
+/* UI */
 #css-ui {
   position: fixed;
   top: 10px;
@@ -58,30 +84,33 @@ textarea {
 
 <body>
 
-<div>
+<!-- 入力 -->
+<div id="editor">
   <textarea id="md" placeholder="Markdownを書く"></textarea>
-  <textarea id="css" placeholder="CSS（自動生成されるけど編集OK）"></textarea>
+  <textarea id="css" placeholder="CSS（視覚UI＋直編集OK）"></textarea>
 </div>
 
-<div id="preview"></div>
+<!-- プレビュー -->
+<div id="preview-wrap">
+  <pre id="html-preview"></pre>
+  <iframe id="iframe-preview"></iframe>
+</div>
 
-<!-- 視覚CSS UI -->
+<!-- 視覚CSS -->
 <div id="css-ui">
   <label>
     display
     <select id="ui-display">
-      <option value="block">block</option>
-      <option value="flex">flex</option>
-      <option value="grid">grid</option>
-      <option value="none">none</option>
+      <option>block</option>
+      <option>flex</option>
+      <option>grid</option>
+      <option>none</option>
     </select>
   </label>
-
   <label>
     背景色
     <input type="color" id="ui-bg" value="#ffffff">
   </label>
-
   <label>
     文字色
     <input type="color" id="ui-color" value="#000000">
@@ -95,15 +124,16 @@ textarea {
 <script>
 const mdEl = document.getElementById("md");
 const cssEl = document.getElementById("css");
-const preview = document.getElementById("preview");
+const htmlPreview = document.getElementById("html-preview");
+const iframe = document.getElementById("iframe-preview");
 
 const uiDisplay = document.getElementById("ui-display");
 const uiBg = document.getElementById("ui-bg");
 const uiColor = document.getElementById("ui-color");
 
-const images = []; // { name, blob }
+const images = [];
 
-/* CSS自動生成 */
+/* UI CSS生成 */
 function buildUICSS() {
   return `
 body {
@@ -114,65 +144,48 @@ body {
 `.trim();
 }
 
-/* プレビュー更新 */
-function render() {
-  preview.innerHTML = `
-    <style>${cssEl.value}</style>
-    ${marked.parse(mdEl.value)}
-  `;
-}
-
-/* UI → CSS同期 */
-function syncCSSFromUI() {
-  cssEl.value = buildUICSS();
-  render();
-}
-
-uiDisplay.onchange = syncCSSFromUI;
-uiBg.oninput = syncCSSFromUI;
-uiColor.oninput = syncCSSFromUI;
-
-mdEl.oninput = render;
-cssEl.oninput = render;
-
-syncCSSFromUI();
-
-/* 画像ドラッグ＆ドロップ */
-preview.addEventListener("dragover", e => e.preventDefault());
-preview.addEventListener("drop", e => {
-  e.preventDefault();
-  [...e.dataTransfer.files].forEach(file => {
-    if (!file.type.startsWith("image/")) return;
-    const ext = file.name.split(".").pop();
-    const name = `image_${images.length + 1}.${ext}`;
-    images.push({ name, blob: file });
-    mdEl.value += `\n![${name}](assets/${name})\n`;
-    render();
-  });
-});
-
-/* ZIP出力 */
-document.getElementById("export").onclick = async () => {
-  const zip = new JSZip();
-
-  const html = `<!DOCTYPE html>
+/* HTML生成 */
+function buildHTML() {
+  return `<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="style.css">
-<title>My Site</title>
+<style>${cssEl.value}</style>
 </head>
 <body>
 ${marked.parse(mdEl.value)}
 </body>
 </html>`;
+}
 
-  zip.file("index.html", html);
+/* 描画 */
+function render() {
+  const html = buildHTML();
+  htmlPreview.textContent = html;
+  iframe.srcdoc = html;
+}
+
+/* UI → CSS */
+function syncCSS() {
+  cssEl.value = buildUICSS();
+  render();
+}
+
+uiDisplay.onchange = syncCSS;
+uiBg.oninput = syncCSS;
+uiColor.oninput = syncCSS;
+
+mdEl.oninput = render;
+cssEl.oninput = render;
+
+syncCSS();
+
+/* ZIP */
+document.getElementById("export").onclick = async () => {
+  const zip = new JSZip();
+  zip.file("index.html", buildHTML());
   zip.file("style.css", cssEl.value);
-
-  const assets = zip.folder("assets");
-  images.forEach(img => assets.file(img.name, img.blob));
 
   const blob = await zip.generateAsync({ type: "blob" });
   saveAs(blob, "site.zip");
